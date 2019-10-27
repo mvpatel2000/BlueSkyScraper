@@ -4,6 +4,8 @@ import datetime as dt
 import numpy as np
 from tqdm import tqdm
 import json
+from pprint import pprint
+from nltk.twitter import Query, Twitter, credsfromfile
 # Imports the Google Cloud client library
 from google.cloud import language
 from google.cloud.language import enums
@@ -79,24 +81,28 @@ def scrape_reddit(client):
     # topics_data.to_csv('csvs/reddit-jetblue.csv', index=False, sep = '|') 
 
 def analyze_text(client, text="Hello, world! I love Kavya!"):
-    # The text to analyze
-    document = types.Document(
-        content=text,
-        type=enums.Document.Type.PLAIN_TEXT)
+    try:
+        # The text to analyze
+        document = types.Document(
+            content=text,
+            type=enums.Document.Type.PLAIN_TEXT)
 
-    # Detects the sentiment of the text
-    doc_sentiment = client.analyze_sentiment(document=document).document_sentiment # .score, .magnitude
-    ent_sentiments = client.analyze_entity_sentiment(document=document).entities
+        # Detects the sentiment of the text
+        doc_sentiment = client.analyze_sentiment(document=document).document_sentiment # .score, .magnitude
+        ent_sentiments = client.analyze_entity_sentiment(document=document).entities
 
-    ent_score = 0
-    ent_magnitude = 0
-    for ent in ent_sentiments:
-        if ent.name == "jetblue" or "JetBlue" or "Jetblue" or "jet blue" or "Jet Blue":
-            ent_score += ent.sentiment.score
-            ent_magnitude += ent.sentiment.magnitude
-    # print("Entity (Jet Blue) sentiment. Score:", ent_score, "Magnitude:", ent_magnitude)
-    # print("Overall sentiment. Score:", doc_sentiment.score, "Magnitude:", doc_sentiment.magnitude)
-    return ent_score, ent_magnitude, doc_sentiment.score, doc_sentiment.magnitude
+        ent_score = 0
+        ent_magnitude = 0
+        for ent in ent_sentiments:
+            if ent.name == "jetblue" or "JetBlue" or "Jetblue" or "jet blue" or "Jet Blue":
+                ent_score += ent.sentiment.score
+                ent_magnitude += ent.sentiment.magnitude
+        # print("Entity (Jet Blue) sentiment. Score:", ent_score, "Magnitude:", ent_magnitude)
+        # print("Overall sentiment. Score:", doc_sentiment.score, "Magnitude:", doc_sentiment.magnitude)
+        return ent_score, ent_magnitude, doc_sentiment.score, doc_sentiment.magnitude
+    except:
+        print("Failed!", text)
+        return 0,0,0,0
 
 def postprocess_reddit():
     with open('./csvs/reddit-jetblue-sentiment.json', 'r') as fp:
@@ -107,9 +113,43 @@ def postprocess_reddit():
         metric_score = np.asarray(topics_dict[metric])
         print(metric,"Mean:",np.mean(metric_score),"St Dev:",np.std(metric_score))
 
+def scrape_twitter(google_client):
+    tw = Twitter()
+    # tweets = tw.tweets(keywords='JetBlue', stream=False, limit=10) #sample from the public stream
+    # print(tweets)
+    oauth = credsfromfile()
+    client = Query(**oauth)
+    tweets = client.search_tweets(keywords='JetBlue OR #JetBlue -filter:retweets', limit=10000)
+
+    topics_dict = { "tweet_texts":[], \
+                    "ent_score":[], \
+                    "ent_magn":[], \
+                    "overall_score":[], \
+                    "overall_magn":[]}
+
+    for tweet in tqdm(tweets):
+        topics_dict["tweet_texts"].append(tweet['text'])
+        ent_score, ent_magnitude, doc_score, doc_magnitude = analyze_text(google_client, text=tweet['text'])
+        topics_dict["ent_score"].append(ent_score)
+        topics_dict["ent_magn"].append(ent_magnitude)
+        topics_dict["overall_score"].append(doc_score)
+        topics_dict["overall_magn"].append(doc_magnitude)
+        # pprint(tweet, depth=1)
+        # print('\n\n')
+
+    print('Total Count:', len(topics_dict["tweet_texts"]))
+    metrics = ["ent_score","ent_magn","overall_score","overall_magn"]
+    for metric in metrics:
+        metric_score = np.asarray(topics_dict[metric])
+        print(metric,"Mean:",np.mean(metric_score),"St Dev:",np.std(metric_score))
+
+    with open('./csvs/twitter-jetblue-sentiment.json', 'w') as fp:
+        json.dump(topics_dict, fp)
+
 if __name__ == "__main__":
     # Instantiates a client
-    client = language.LanguageServiceClient()
+    google_client = language.LanguageServiceClient()
     
-    #scrape_reddit(client)
-    postprocess_reddit()
+    # scrape_reddit(google_client)
+    # postprocess_reddit()
+    scrape_twitter(google_client)
