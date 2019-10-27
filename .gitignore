@@ -2,3 +2,4 @@ blueskyenv*
 *.json
 .idea/
 .ipy*
+twitter-files/*
